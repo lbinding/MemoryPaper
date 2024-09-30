@@ -1,2 +1,2 @@
-# Anatomically Targeted Automated Tractography Version 2 
-(As seen in the memory paper) 
+# Analysis from the memory paper 
+(Including AT-ATv2-public) 
