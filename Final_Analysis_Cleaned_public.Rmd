@@ -1,0 +1,759 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Import Libs 
+```{r}
+#library(ggplot2)
+#library(patchwork)
+library(neuroCombat)
+library(lsr)
+library(car)
+#library(ggcorrplot)
+library(factoextra)
+library(reshape2)
+library(fastICA)
+library(tidyverse)
+#library(userfriendlyscience)
+library(lmerTest)
+library(readxl)
+library(MuMIn)
+library(RobStatTM)
+library(robust)
+```
+
+# Import data 
+Import data and then initially split the data into LTLE 
+```{r}
+data <- read_excel("/Users/lawrencebinding/Desktop/projects/Epilepsy/p1802Memory/Fibre_bundle_paper/final_analysis/AllPatients_Public_anon.xlsx", na = c("NaN", "NAN"))
+data_LTLE <- data[data$TLE_side == "LTLE", ]
+```
+
+# Check for scanner differences 
+```{r}
+#Fornix 
+t.test(Tractography_FNX ~ Scanner, data=data_LTLE)
+t.test(Postop_vol_FNX ~ Scanner, data=data_LTLE)
+
+#Ventral Cingulum 
+t.test(Tractography_vCing ~ Scanner, data=data_LTLE)
+t.test(Postop_vol_vCing ~ Scanner, data=data_LTLE)
+
+```
+
+## Fornix Correction
+```{r}
+#Put data for combat in a separate variable 
+data_for_combat = t(data_LTLE[,c("Postop_vol_FNX","Tractography_FNX")])
+Scanner = t(data_LTLE[,c('Scanner')])
+
+#Index the nans 
+cols_with_nan <- apply(data_for_combat, 2, function(col) any(is.na(col)))
+
+#Remove NaNs 
+data_for_combat_clean <- data_for_combat[, !cols_with_nan]
+Scanner_clean <- Scanner[, !cols_with_nan]
+
+#Run neurocombat 
+data_harm <- neuroCombat(dat=data_for_combat_clean, batch=Scanner_clean)
+data_harm = data.frame(t(data_harm$dat.combat))
+
+#Output the data 
+data_LTLE$Postop_vol_FNX_harm <- NA  
+data_LTLE$Postop_vol_FNX_harm[!cols_with_nan] <- data_harm$Postop_vol_FNX
+data_LTLE$Tractography_FNX_harm <- NA  
+data_LTLE$Tractography_FNX_harm[!cols_with_nan] <- data_harm$Tractography_FNX
+```
+
+# Scale data 
+```{r}
+# Preop tracts  
+data_LTLE$Tractography_vCing_scaled <- as.vector(scale(data_LTLE$Tractography_vCing))
+data_LTLE$Tractography_FNX_scaled <- as.vector(scale(data_LTLE$Tractography_FNX_harm))
+# Postop volume 
+data_LTLE$Postop_vol_FNX_scaled <- as.vector(scale(data_LTLE$Postop_vol_FNX_harm))
+data_LTLE$Postop_vol_vCing_scaled <- as.vector(scale(data_LTLE$Postop_vol_vCing))
+#Covariates 
+data_LTLE$ResectinMask_Scaled <- as.vector(scale(data_LTLE$ResectionvMask))
+#Neuropsychology
+data_LTLE$ListA15_preZ_scaled <- as.vector(scale(data_LTLE$List15_preZ))
+data_LTLE$ListA6_preZ_scaled <- as.vector(scale(data_LTLE$ListA6_preZ))
+```
+
+# RCI Generation
+## Verbal Encoding 
+```{r}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#3 months 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+summary( List15_3mZ_change <- lmrobdetMM(List15_3mZ_change ~ Age + ResectinMask_Scaled +  List15_preZ  , data=data_LTLE,na.action= na.omit))
+
+# Make a copy of residuals
+residuals_bin <- List15_3mZ_change$residuals
+
+# Set all elements to 0
+residuals_bin <- rep(0, length(residuals_bin))
+
+
+# Set elements to 1 where residuals are greater than 1.5 standard deviations
+residuals_bin[List15_3mZ_change$residuals <= (quantile(List15_3mZ_change$residuals,0.20))] <- -1
+
+# Set elements to -1 where residuals are less than -1.5 standard deviations
+residuals_bin[List15_3mZ_change$residuals >= (quantile(List15_3mZ_change$residuals,0.80))] <- 1
+
+# Get the index of non-missing values in the 'List15_3mZ_change' column
+non_missing_index <- !is.na(data_LTLE$List15_3mZ_change)
+
+# Place the residuals back into the dataframe at the non-missing index
+data_LTLE$List15_3mZ_change_residuals_bin <- NA  # Initialize a new column for residuals
+data_LTLE$List15_3mZ_change_residuals_bin[non_missing_index] <- residuals_bin
+data_LTLE$List15_3mZ_change_residuals <- NA  # Initialize a new column for residuals
+data_LTLE$List15_3mZ_change_residuals[non_missing_index] <- List15_3mZ_change$residuals
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#12 months 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+summary( List15_12mZ_change <- lmrobdetMM(List15_12mZ_change ~ Age + ResectinMask_Scaled +  List15_preZ  , data=data_LTLE,na.action= na.omit))
+
+# Make a copy of residuals
+residuals_bin <- List15_12mZ_change$residuals
+
+# Set all elements to 0
+residuals_bin <- rep(0, length(residuals_bin))
+
+residuals_bin[List15_12mZ_change$residuals <= (quantile(List15_12mZ_change$residuals,0.20))] <- -1
+
+# Set elements to -1 where residuals are less than -1.5 standard deviations
+residuals_bin[List15_12mZ_change$residuals >= (quantile(List15_12mZ_change$residuals,0.80))] <- 1
+
+# Get the index of non-missing values in the 'List15_3mZ_change' column
+non_missing_index <- !is.na(data_LTLE$List15_12mZ_change)
+
+# Place the residuals back into the dataframe at the non-missing index
+data_LTLE$List15_12mZ_change_residuals_bin <- NA  # Initialize a new column for residuals
+data_LTLE$List15_12mZ_change_residuals_bin[non_missing_index] <- residuals_bin
+data_LTLE$List15_12mZ_change_residuals <- NA  # Initialize a new column for residuals
+data_LTLE$List15_12mZ_change_residuals[non_missing_index] <- List15_12mZ_change$residuals
+```
+## Verbal Retrieval
+```{r}
+library(RobStatTM)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#3 months 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+summary( ListA6_3mZ_change <- lmrobdetMM(ListA6_3mZ_change ~ Age + ResectinMask_Scaled +  ListA6_preZ  , data=data_LTLE,na.action= na.omit))
+
+# Make a copy of residuals
+residuals_bin <- ListA6_3mZ_change$residuals
+
+# Set all elements to 0
+residuals_bin <- rep(0, length(residuals_bin))
+
+
+# Set elements to 1 where residuals are greater than 1.5 standard deviations
+residuals_bin[ListA6_3mZ_change$residuals <= (quantile(ListA6_3mZ_change$residuals,0.20))] <- -1
+
+# Set elements to -1 where residuals are less than -1.5 standard deviations
+residuals_bin[ListA6_3mZ_change$residuals >= (quantile(ListA6_3mZ_change$residuals,0.80))] <- 1
+
+# Get the index of non-missing values in the 'ListA6_3mZ_change' column
+non_missing_index <- !is.na(data_LTLE$ListA6_3mZ_change)
+
+# Place the residuals back into the dataframe at the non-missing index
+data_LTLE$ListA6_3mZ_change_residuals_bin <- NA  # Initialize a new column for residuals
+data_LTLE$ListA6_3mZ_change_residuals_bin[non_missing_index] <- residuals_bin
+data_LTLE$ListA6_3mZ_change_residuals <- NA  # Initialize a new column for residuals
+data_LTLE$ListA6_3mZ_change_residuals[non_missing_index] <- ListA6_3mZ_change$residuals
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#12 months 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+summary( ListA6_12mZ_change <- lmrobdetMM(ListA6_12mZ_change ~ Age + ResectinMask_Scaled +  ListA6_preZ  , data=data_LTLE,na.action= na.omit))
+
+# Make a copy of residuals
+residuals_bin <- ListA6_12mZ_change$residuals
+
+# Set all elements to 0
+residuals_bin <- rep(0, length(residuals_bin))
+
+residuals_bin[ListA6_12mZ_change$residuals <= (quantile(ListA6_12mZ_change$residuals,0.20))] <- -1
+
+# Set elements to -1 where residuals are less than -1.5 standard deviations
+residuals_bin[ListA6_12mZ_change$residuals >= (quantile(ListA6_12mZ_change$residuals,0.80))] <- 1
+
+# Get the index of non-missing values in the 'ListA6_3mZ_change' column
+non_missing_index <- !is.na(data_LTLE$ListA6_12mZ_change)
+
+# Place the residuals back into the dataframe at the non-missing index
+data_LTLE$ListA6_12mZ_change_residuals_bin <- NA  # Initialize a new column for residuals
+data_LTLE$ListA6_12mZ_change_residuals_bin[non_missing_index] <- residuals_bin
+data_LTLE$ListA6_12mZ_change_residuals <- NA  # Initialize a new column for residuals
+data_LTLE$ListA6_12mZ_change_residuals[non_missing_index] <- ListA6_12mZ_change$residuals
+
+
+```
+
+
+# Descriptive Statistics 
+## Three Cohort Differences
+```{r}
+#Extract data 
+data_atlas <- data_LTLE[data_LTLE$Analysis_Atlas == 1, ]
+data_preop <- data_LTLE[data_LTLE$Analaysis_preop == 1, ]
+data_postop <- data_LTLE[data_LTLE$Analysis_postop == 1, ]
+
+#Label data 
+data_atlas$source <- "atlas"
+data_preop$source <- "preop"
+data_postop$source <- "postop"
+
+# Stack the dataframes together
+combined_data <- rbind(data_atlas, data_preop, data_postop)
+
+#ONSET AGE
+cat(sprintf("%.2f (%.2f)", mean(data_atlas$OnsetAge), sd(data_atlas$OnsetAge)))
+cat(sprintf("%.2f (%.2f)", mean(data_preop$OnsetAge), sd(data_preop$OnsetAge)))
+cat(sprintf("%.2f (%.2f)", mean(data_postop$OnsetAge), sd(data_postop$OnsetAge)))
+#Anova
+summary(anova_result <- aov(OnsetAge ~ source, data = combined_data))
+
+
+#AGE
+cat(sprintf("%.2f (%.2f)", mean(data_atlas$Age), sd(data_atlas$Age)))
+cat(sprintf("%.2f (%.2f)", mean(data_preop$Age), sd(data_preop$Age)))
+cat(sprintf("%.2f (%.2f)", mean(data_postop$Age), sd(data_postop$Age)))
+#Anova
+summary(anova_result <- aov(Age ~ source, data = combined_data))
+
+#EpLength
+cat(sprintf("%.2f (%.2f)", mean(data_atlas$EpLength), sd(data_atlas$EpLength)))
+cat(sprintf("%.2f (%.2f)", mean(data_preop$EpLength), sd(data_preop$EpLength)))
+cat(sprintf("%.2f (%.2f)", mean(data_postop$EpLength), sd(data_postop$EpLength)))
+#Anova
+summary(anova_result <- aov(EpLength ~ source, data = combined_data))
+
+#Pathology
+crosstab_HS<- table(combined_data$source, combined_data$HS_bin)
+crosstab_HS_percent <- prop.table(crosstab_HS, margin = 1) * 100
+summary(crosstab_HS_percent)
+```
+
+# Neuropsychology 
+```{r}
+#Preop Mean / STD 
+mean(data_LTLE$List15_preZ, na.rm = TRUE)
+sd(data_LTLE$List15_preZ, na.rm = TRUE)
+
+#3m Mean / STD 
+mean(data_LTLE$List15_3mZ, na.rm = TRUE)
+sd(data_LTLE$List15_3mZ, na.rm = TRUE)
+
+#12m Mean / STD 
+mean(data_LTLE$List15_12mZ, na.rm = TRUE)
+sd(data_LTLE$List15_12mZ, na.rm = TRUE)
+
+ListA15_long_z <- melt(data_LTLE, 
+                    id.vars = c("IDP","Age", "ResectionvMask","OnsetAge","EpLength"),
+                    measure.vars = c("List15_preZ", "List15_3mZ", "List15_12mZ"), 
+                    variable.name = "Timepoint",
+                    value.name = "ListA15_outcome")
+
+ListA15_long_z <- na.omit(ListA15_long_z)
+
+
+anova_result <- aov(ListA15_outcome ~ Timepoint + Age + OnsetAge +EpLength+ ResectionvMask + Error(IDP/Timepoint), data = ListA15_long_z)
+summary(anova_result)
+pairwise.t.test(ListA15_long_z$ListA15_outcome, ListA15_long_z$Timepoint, p.adjust.method = "bonferroni")
+
+
+# List A6
+ListA6_long_z <- melt(data_LTLE, 
+                    id.vars = c("IDP","Age", "ResectionvMask","OnsetAge","EpLength"),
+                    measure.vars = c("ListA6_preZ", "ListA6_3mZ", "ListA6_12mZ"), 
+                    variable.name = "Timepoint",
+                    value.name = "ListA6_outcome")
+
+ListA6_long_z <- na.omit(ListA6_long_z)
+
+anova_result <- aov(ListA6_outcome ~ Timepoint + Age + OnsetAge +EpLength+ ResectionvMask + Error(IDP/Timepoint), data = ListA6_long_z)
+summary(anova_result)
+pairwise.t.test(ListA6_long_z$ListA6_outcome, ListA6_long_z$Timepoint, p.adjust.method = "bonferroni")
+```
+
+#Atlas Based Analysis 
+## SoZ Outcome 
+```{r}
+#SoZ Outcome
+#FNX
+crosstab_SoZ <- table(data_LTLE$TLSM_FNX_bin, data_LTLE$ILAE_bin)
+summary(crosstab_SoZ)
+row_sums <- rowSums(crosstab_SoZ)
+# Calculate the percentages for each group
+crosstab_SoZ_percent <- prop.table(crosstab_SoZ, margin = 1) * 100
+# Print the percentage table
+print(crosstab_SoZ_percent)
+summary(crosstab_SoZ_percent)
+
+#vCing
+crosstab_SoZ <- table(data_LTLE$TLSM_vCing_bin, data_LTLE$ILAE_bin)
+summary(crosstab_SoZ)
+row_sums <- rowSums(crosstab_SoZ)
+# Calculate the percentages for each group
+crosstab_SoZ_percent <- prop.table(crosstab_SoZ, margin = 1) * 100
+# Print the percentage table
+print(crosstab_SoZ_percent)
+summary(crosstab_SoZ_percent)
+```
+
+## Verbal Encoding 
+```{r}
+#Setup long data format
+ListA15_long_z <- melt(data_LTLE, 
+                    id.vars = c("IDP","TLSM_vCing_bin","TLSM_FNX_bin","ILAE_bin"),
+                    measure.vars = c("List15_3mZ_change_residuals_bin","List15_12mZ_change_residuals_bin"), 
+                    variable.name = "Timepoint",
+                    value.name = "ListA15_RCI")
+
+ListA15_long_z <- na.omit(ListA15_long_z)
+
+ListA15_long_z$Timepoint <- as.character(ListA15_long_z$Timepoint)
+ListA15_long_z$Timepoint <- ifelse(ListA15_long_z$Timepoint == "List15_3mZ_change_residuals_bin", "Postop3m", ListA15_long_z$Timepoint)
+ListA15_long_z$Timepoint <- ifelse(ListA15_long_z$Timepoint == "List15_12mZ_change_residuals_bin", "Postop_12m", ListA15_long_z$Timepoint)
+
+#FNX
+crosstab_ListA15 <- table(ListA15_long_z$TLSM_FNX_bin, ListA15_long_z$ListA15_RCI)
+row_sums <- rowSums(crosstab_ListA15)
+
+# Calculate the percentages for each group
+crosstab_ListA15_percent <- prop.table(crosstab_ListA15, margin = 1) * 100
+
+# Print the percentage table
+print(crosstab_ListA15_percent)
+summary(crosstab_ListA15_percent)
+
+
+#vCing
+crosstab_ListA15 <- table(ListA15_long_z$TLSM_vCing_bin, ListA15_long_z$ListA15_RCI)
+summary(crosstab_ListA15)
+
+row_sums <- rowSums(crosstab_ListA15)
+
+# Calculate the percentages for each group
+crosstab_ListA15_percent <- prop.table(crosstab_ListA15, margin = 1) * 100
+
+# Print the percentage table
+print(crosstab_ListA15_percent)
+summary(crosstab_ListA15_percent)
+
+
+```
+## Verbal Retrieval 
+```{r}
+#Setup long data format
+ListA6_long_z <- melt(data_LTLE, 
+                    id.vars = c("IDP","TLSM_vCing_bin","TLSM_FNX_bin"),
+                    measure.vars = c("ListA6_3mZ_change_residuals_bin","ListA6_12mZ_change_residuals_bin"), 
+                    variable.name = "Timepoint",
+                    value.name = "ListA6_RCI")
+
+ListA6_long_z <- na.omit(ListA6_long_z)
+
+ListA6_long_z$Timepoint <- as.character(ListA6_long_z$Timepoint)
+ListA6_long_z$Timepoint <- ifelse(ListA6_long_z$Timepoint == "ListA6_3mZ_change_residuals_bin", "Postop3m", ListA6_long_z$Timepoint)
+ListA6_long_z$Timepoint <- ifelse(ListA6_long_z$Timepoint == "ListA6_12mZ_change_residuals_bin", "Postop_12m", ListA6_long_z$Timepoint)
+
+#FNX
+crosstab_ListA6 <- table(ListA6_long_z$TLSM_FNX_bin, ListA6_long_z$ListA6_RCI)
+row_sums <- rowSums(crosstab_ListA6)
+
+# Calculate the percentages for each group
+crosstab_ListA6_percent <- prop.table(crosstab_ListA6, margin = 1) * 100
+
+# Print the percentage table
+print(crosstab_ListA6_percent)
+summary(crosstab_ListA6_percent)
+
+
+#vCing
+crosstab_ListA6 <- table(ListA6_long_z$TLSM_vCing_bin, ListA6_long_z$ListA6_RCI)
+summary(crosstab_ListA6)
+
+row_sums <- rowSums(crosstab_ListA6)
+
+# Calculate the percentages for each group
+crosstab_ListA6_percent <- prop.table(crosstab_ListA6, margin = 1) * 100
+
+# Print the percentage table
+print(crosstab_ListA6_percent)
+summary(crosstab_ListA6_percent)
+```
+
+#Preoperative Tractography Transection 
+## Seizure Outcome 
+```{r}
+t.test(Tractography_vCing_scaled ~ ILAE_bin, data=data_LTLE)
+t.test(Tractography_FNX_scaled ~ ILAE_bin, data=data_LTLE)
+```
+## Setup Dataframe 
+```{r}
+#Setup long dataframe 
+ListA15_resect_LTLE <- melt(data_LTLE, 
+                    id.vars = c("IDP","Tractography_vCing_scaled","ResectinMask_Scaled","Type","EpLength","Tractography_FNX_scaled","OnsetAge","List15_preZ","Age"),
+                    measure.vars = c("List15_3mZ_change", "List15_12mZ_change"), 
+                    variable.name = "Timepoint",
+                    value.name = "ListA15_changeZ")
+
+ListA6_resect_LTLE <- melt(data_LTLE, 
+                    id.vars = c("IDP","TLE_side","Tractography_vCing_scaled","ResectinMask_Scaled","Type","EpLength","Tractography_FNX_scaled","OnsetAge","ListA6_preZ","Age"),
+                    measure.vars = c("ListA6_3mZ_change", "ListA6_12mZ_change"), 
+                    variable.name = "Timepoint",
+                    value.name = "ListA6_changeZ")
+
+```
+## Preop Tracts, Fornix, Verbal Encoding 
+```{r}
+#FORNIX Linear Mixed Effect Model
+summary( mdl_null <- lmer(ListA15_changeZ ~ Timepoint + Age+ List15_preZ +ResectinMask_Scaled+Type+ (1|IDP), data=subset(ListA15_resect_LTLE, !is.na(Tractography_FNX_scaled))))
+summary( mdl_FNX <- lmer(ListA15_changeZ ~ Timepoint + List15_preZ+ Tractography_FNX_scaled+ Age +Type+ ResectinMask_Scaled+ (1|IDP), data=subset(ListA15_resect_LTLE, !is.na(Tractography_FNX_scaled))))
+mdl_FNX_anova <- anova(mdl_FNX,mdl_null)
+mdl_FNX_conf <- confint(mdl_FNX,level = 0.95)
+
+# Code to print easy-to-copy stuff for paper 
+mdl_FNX_summary <- summary(mdl_FNX)
+conf_intervals <- mdl_FNX_conf[rownames(mdl_FNX_summary$coefficients), ]
+covariate_names <- rownames(mdl_FNX_summary$coefficients)
+for (i in 1:nrow(mdl_FNX_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_FNX_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_FNX_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_FNX_anova$Df[2], mdl_FNX_anova$Chisq[2], mdl_FNX_anova$`Pr(>Chisq)`[2]))
+#/ 
+```
+## Fornix without Resection Volume
+```{r}
+
+#FORNIX Linear Mixed Effect Model
+summary( mdl_null <- lmer(ListA15_changeZ ~ Timepoint + Age+ List15_preZ +Type+ (1|IDP), data=subset(ListA15_resect_LTLE, !is.na(Tractography_FNX_scaled))))
+summary( mdl_FNX <- lmer(ListA15_changeZ ~ Timepoint + List15_preZ+ Tractography_FNX_scaled+ Age +Type+ (1|IDP), data=subset(ListA15_resect_LTLE, !is.na(Tractography_FNX_scaled))))
+mdl_FNX_anova <- anova(mdl_FNX,mdl_null)
+mdl_FNX_conf <- confint(mdl_FNX,level = 0.95)
+
+# Code to print easy-to-copy stuff for paper 
+mdl_FNX_summary <- summary(mdl_FNX)
+conf_intervals <- mdl_FNX_conf[rownames(mdl_FNX_summary$coefficients), ]
+covariate_names <- rownames(mdl_FNX_summary$coefficients)
+for (i in 1:nrow(mdl_FNX_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_FNX_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_FNX_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_FNX_anova$Df[2], mdl_FNX_anova$Chisq[2], mdl_FNX_anova$`Pr(>Chisq)`[2]))
+#/ 
+
+```
+
+## Preop Tracts, Ventral Cingulum , Verbal Encoding 
+```{r}
+#vCing
+summary( mdl_null <- lmer(ListA15_changeZ ~ Timepoint + Age+ List15_preZ +ResectinMask_Scaled+Type+ (1|IDP), data=subset(ListA15_resect_LTLE, !is.na(Tractography_vCing_scaled))))
+summary( mdl_vCing <- lmer(ListA15_changeZ ~ Timepoint + Age + List15_preZ+ Tractography_vCing_scaled+ Type+ ResectinMask_Scaled+ (1|IDP), data=subset(ListA15_resect_LTLE, !is.na(Tractography_vCing_scaled))))
+mdl_vCing_anova <- anova(mdl_vCing,mdl_null)
+mdl_vCing_conf <- confint(mdl_vCing,level = 0.95)
+
+# Code to print easy-to-copy stuff for paper 
+mdl_vCing_summary <- summary(mdl_vCing)
+conf_intervals <- mdl_vCing_conf[rownames(mdl_vCing_summary$coefficients), ]
+covariate_names <- rownames(mdl_vCing_summary$coefficients)
+
+for (i in 1:nrow(mdl_vCing_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_vCing_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_vCing_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_vCing_anova$Df[2], mdl_vCing_anova$Chisq[2], mdl_vCing_anova$`Pr(>Chisq)`[2]))
+#/
+```
+
+## Preop Tracts, Fornix, Verbal Encoding 
+```{r}
+
+#FNX
+summary( mdl_null <- lmer(ListA6_changeZ ~ Timepoint + Age+ ListA6_preZ +ResectinMask_Scaled+Type+ (1|IDP), data=subset(ListA6_resect_LTLE, !is.na(Tractography_FNX_scaled))))
+summary( mdl_FNX <- lmer(ListA6_changeZ ~ Timepoint + ListA6_preZ+ Tractography_FNX_scaled+ Age +Type+ ResectinMask_Scaled+ (1|IDP), data=subset(ListA6_resect_LTLE, !is.na(Tractography_FNX_scaled))))
+mdl_FNX_anova <- anova(mdl_FNX,mdl_null)
+mdl_FNX_conf <- confint(mdl_FNX,level = 0.95)
+#For paper
+mdl_FNX_summary <- summary(mdl_FNX)
+conf_intervals <- mdl_FNX_conf[rownames(mdl_FNX_summary$coefficients), ]
+covariate_names <- rownames(mdl_FNX_summary$coefficients)
+
+for (i in 1:nrow(mdl_FNX_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_FNX_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_FNX_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_FNX_anova$Df[2], mdl_FNX_anova$Chisq[2], mdl_FNX_anova$`Pr(>Chisq)`[2]))
+
+```
+### Simplified Models (without resection volume)
+```{r}
+#FNX
+summary( mdl_null <- lmer(ListA6_changeZ ~ Timepoint + Age+ ListA6_preZ +Type+ (1|IDP), data=subset(ListA6_resect_LTLE, !is.na(Tractography_FNX_scaled))))
+summary( mdl_FNX <- lmer(ListA6_changeZ ~ Timepoint + ListA6_preZ+ Tractography_FNX_scaled+ Age +Type+ (1|IDP), data=subset(ListA6_resect_LTLE, !is.na(Tractography_FNX_scaled))))
+mdl_FNX_anova <- anova(mdl_FNX,mdl_null)
+mdl_FNX_conf <- confint(mdl_FNX,level = 0.95)
+#For paper
+mdl_FNX_summary <- summary(mdl_FNX)
+conf_intervals <- mdl_FNX_conf[rownames(mdl_FNX_summary$coefficients), ]
+covariate_names <- rownames(mdl_FNX_summary$coefficients)
+
+for (i in 1:nrow(mdl_FNX_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_FNX_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_FNX_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_FNX_anova$Df[2], mdl_FNX_anova$Chisq[2], mdl_FNX_anova$`Pr(>Chisq)`[2]))
+
+```
+
+
+## Preop Tracts, Ventral Cingulum , Verbal Encoding 
+```{r}
+#vCing
+summary( mdl_null <- lmer(ListA6_changeZ ~ Timepoint + Age+ ListA6_preZ +ResectinMask_Scaled+Type+ (1|IDP), data=subset(ListA6_resect_LTLE, !is.na(Tractography_vCing_scaled))))
+summary( mdl_vCing <- lmer(ListA6_changeZ ~ Timepoint + Age + ListA6_preZ+ Tractography_vCing_scaled+ Type+ ResectinMask_Scaled+ (1|IDP), data=subset(ListA6_resect_LTLE, !is.na(Tractography_vCing_scaled))))
+mdl_vCing_anova <- anova(mdl_vCing,mdl_null)
+mdl_vCing_conf <- confint(mdl_vCing,level = 0.95)
+#For paper
+mdl_vCing_summary <- summary(mdl_vCing)
+conf_intervals <- mdl_vCing_conf[rownames(mdl_vCing_summary$coefficients), ]
+covariate_names <- rownames(mdl_vCing_summary$coefficients)
+
+for (i in 1:nrow(mdl_vCing_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_vCing_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_vCing_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_vCing_anova$Df[2], mdl_vCing_anova$Chisq[2], mdl_vCing_anova$`Pr(>Chisq)`[2]))
+```
+### Simplified Model (Without resection Volume)
+```{r}
+#vCing
+summary( mdl_null <- lmer(ListA6_changeZ ~ Timepoint + Age+ ListA6_preZ +Type+ (1|IDP), data=subset(ListA6_resect_LTLE, !is.na(Tractography_vCing_scaled))))
+summary( mdl_vCing <- lmer(ListA6_changeZ ~ Timepoint + Age + ListA6_preZ+ Tractography_vCing_scaled+ Type+ (1|IDP), data=subset(ListA6_resect_LTLE, !is.na(Tractography_vCing_scaled))))
+mdl_vCing_anova <- anova(mdl_vCing,mdl_null)
+mdl_vCing_conf <- confint(mdl_vCing,level = 0.95)
+#For paper
+mdl_vCing_summary <- summary(mdl_vCing)
+conf_intervals <- mdl_vCing_conf[rownames(mdl_vCing_summary$coefficients), ]
+covariate_names <- rownames(mdl_vCing_summary$coefficients)
+
+for (i in 1:nrow(mdl_vCing_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_vCing_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_vCing_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_vCing_anova$Df[2], mdl_vCing_anova$Chisq[2], mdl_vCing_anova$`Pr(>Chisq)`[2]))
+```
+
+# Postoperative Volume Analysis
+## Verbal Encoding 
+### Setup Dataframe 
+```{r}
+ListA15_vol_LTLE <- melt(data_LTLE, 
+                    id.vars = c("IDP","TLE_side","Postop_vol_vCing_scaled","ResectinMask_Scaled","Type","EpLength","Postop_vol_FNX_scaled","OnsetAge","List15_preZ","Age","Scanner"),
+                    measure.vars = c("List15_3mZ_change", "List15_12mZ_change"), 
+                    variable.name = "Timepoint",
+                    value.name = "ListA15_changeZ")
+```
+### Fornix Analysis
+```{r}
+#FNX
+summary( mdl_null <- lmer(ListA15_changeZ ~ Timepoint + Age+ List15_preZ +ResectinMask_Scaled+Type+ Scanner+(1|IDP), data=subset(ListA15_vol_LTLE, !is.na(Postop_vol_FNX_scaled))))
+summary( mdl_FNX <- lmer(ListA15_changeZ ~ Timepoint + List15_preZ+ Postop_vol_FNX_scaled+ Age +Type+ ResectinMask_Scaled+Scanner+ (1|IDP), data=subset(ListA15_vol_LTLE, !is.na(Postop_vol_FNX_scaled))))
+mdl_FNX_anova <- anova(mdl_FNX,mdl_null)
+mdl_FNX_conf <- confint(mdl_FNX,level = 0.95)
+#For paper
+mdl_FNX_summary <- summary(mdl_FNX)
+conf_intervals <- mdl_FNX_conf[rownames(mdl_FNX_summary$coefficients), ]
+covariate_names <- rownames(mdl_FNX_summary$coefficients)
+
+for (i in 1:nrow(mdl_FNX_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_FNX_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_FNX_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_FNX_anova$Df[2], mdl_FNX_anova$Chisq[2], mdl_FNX_anova$`Pr(>Chisq)`[2]))
+```
+### Ventral Cingulum 
+```{r}
+#vCing
+summary( mdl_null <- lmer(ListA15_changeZ ~ Timepoint + Age+ List15_preZ +ResectinMask_Scaled+Type+ (1|IDP), data=subset(ListA15_vol_LTLE, !is.na(Postop_vol_vCing_scaled))))
+summary( mdl_vCing <- lmer(ListA15_changeZ ~ Timepoint + List15_preZ+ Postop_vol_vCing_scaled+Age +  Type+ ResectinMask_Scaled+ (1|IDP), data=subset(ListA15_vol_LTLE, !is.na(Postop_vol_vCing_scaled))))
+mdl_vCing_anova <- anova(mdl_vCing,mdl_null)
+mdl_vCing_conf <- confint(mdl_vCing,level = 0.95)
+#For paper
+mdl_vCing_summary <- summary(mdl_vCing)
+conf_intervals <- mdl_vCing_conf[rownames(mdl_vCing_summary$coefficients), ]
+covariate_names <- rownames(mdl_vCing_summary$coefficients)
+
+for (i in 1:nrow(mdl_vCing_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_vCing_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_vCing_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_vCing_anova$Df[2], mdl_vCing_anova$Chisq[2], mdl_vCing_anova$`Pr(>Chisq)`[2]))
+```
+#### Simplified (No resection volume)
+
+## Verbal Retrieval
+### Dataframe setup  
+```{r}
+ListA6_vol_LTLE <- melt(data_LTLE, 
+                    id.vars = c("IDP","TLE_side","Postop_vol_vCing_scaled","ResectinMask_Scaled","Type","EpLength","Postop_vol_FNX_scaled","OnsetAge","ListA6_preZ","Age","Scanner"),
+                    measure.vars = c("ListA6_3mZ_change", "ListA6_12mZ_change"), 
+                    variable.name = "Timepoint",
+                    value.name = "ListA6_changeZ")
+
+```
+### Fornix 
+```{r}
+#FNX
+summary( mdl_null <- lmer(ListA6_changeZ ~ Timepoint + Age+ ListA6_preZ +ResectinMask_Scaled+Type+ (1|IDP), data=subset(ListA6_vol_LTLE, !is.na(Postop_vol_FNX_scaled))))
+summary( mdl_FNX <- lmer(ListA6_changeZ ~ Timepoint + ListA6_preZ+ Postop_vol_FNX_scaled+ Age +Type+ ResectinMask_Scaled+ (1|IDP), data=subset(ListA6_vol_LTLE, !is.na(Postop_vol_FNX_scaled))))
+mdl_FNX_anova <- anova(mdl_FNX,mdl_null)
+mdl_FNX_conf <- confint(mdl_FNX,level = 0.95)
+#For paper
+mdl_FNX_summary <- summary(mdl_FNX)
+conf_intervals <- mdl_FNX_conf[rownames(mdl_FNX_summary$coefficients), ]
+covariate_names <- rownames(mdl_FNX_summary$coefficients)
+
+for (i in 1:nrow(mdl_FNX_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_FNX_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_FNX_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_FNX_anova$Df[2], mdl_FNX_anova$Chisq[2], mdl_FNX_anova$`Pr(>Chisq)`[2]))
+
+```
+#### Simplied model without reseciton vlume 
+```{r}
+#FNX
+summary( mdl_null <- lmer(ListA6_changeZ ~ Timepoint + Age+ ListA6_preZ +Type+ (1|IDP), data=subset(ListA6_vol_LTLE, !is.na(Postop_vol_FNX_scaled))))
+summary( mdl_FNX <- lmer(ListA6_changeZ ~ Timepoint + ListA6_preZ+ Postop_vol_FNX_scaled+ Age +Type+ (1|IDP), data=subset(ListA6_vol_LTLE, !is.na(Postop_vol_FNX_scaled))))
+mdl_FNX_anova <- anova(mdl_FNX,mdl_null)
+mdl_FNX_conf <- confint(mdl_FNX,level = 0.95)
+#For paper
+mdl_FNX_summary <- summary(mdl_FNX)
+conf_intervals <- mdl_FNX_conf[rownames(mdl_FNX_summary$coefficients), ]
+covariate_names <- rownames(mdl_FNX_summary$coefficients)
+
+for (i in 1:nrow(mdl_FNX_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_FNX_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_FNX_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_FNX_anova$Df[2], mdl_FNX_anova$Chisq[2], mdl_FNX_anova$`Pr(>Chisq)`[2]))
+
+```
+### Ventral Cingulum
+```{r}
+summary( mdl_null <- lmer(ListA6_changeZ ~ Timepoint + Age+ ListA6_preZ +ResectinMask_Scaled+Type+ (1|IDP), data=subset(ListA6_vol_LTLE, !is.na(Postop_vol_vCing_scaled))))
+summary( mdl_vCing <- lmer(ListA6_changeZ ~ Timepoint + ListA6_preZ+ Postop_vol_vCing_scaled+Age +  Type+ ResectinMask_Scaled+ (1|IDP), data=subset(ListA6_vol_LTLE, !is.na(Postop_vol_vCing_scaled))))
+mdl_vCing_anova <- anova(mdl_vCing,mdl_null)
+mdl_vCing_conf <- confint(mdl_vCing,level = 0.95)
+#For paper
+mdl_vCing_summary <- summary(mdl_vCing)
+conf_intervals <- mdl_vCing_conf[rownames(mdl_vCing_summary$coefficients), ]
+covariate_names <- rownames(mdl_vCing_summary$coefficients)
+
+for (i in 1:nrow(mdl_vCing_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_vCing_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_vCing_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_vCing_anova$Df[2], mdl_vCing_anova$Chisq[2], mdl_vCing_anova$`Pr(>Chisq)`[2]))
+```
+#### SImplified Model
+```{r}
+summary( mdl_null <- lmer(ListA6_changeZ ~ Timepoint + Age+ ListA6_preZ +Type+ (1|IDP), data=subset(ListA6_vol_LTLE, !is.na(Postop_vol_vCing_scaled))))
+summary( mdl_vCing <- lmer(ListA6_changeZ ~ Timepoint + ListA6_preZ+ Postop_vol_vCing_scaled+Age +  Type+ (1|IDP), data=subset(ListA6_vol_LTLE, !is.na(Postop_vol_vCing_scaled))))
+mdl_vCing_anova <- anova(mdl_vCing,mdl_null)
+mdl_vCing_conf <- confint(mdl_vCing,level = 0.95)
+#For paper
+mdl_vCing_summary <- summary(mdl_vCing)
+conf_intervals <- mdl_vCing_conf[rownames(mdl_vCing_summary$coefficients), ]
+covariate_names <- rownames(mdl_vCing_summary$coefficients)
+
+for (i in 1:nrow(mdl_vCing_summary$coefficients)) {
+  covariate_name <- covariate_names[i]
+  estimate <- mdl_vCing_summary$coefficients[i, "Estimate"]
+  p_value <- mdl_vCing_summary$coefficients[i, "Pr(>|t|)"]
+  conf_low <- conf_intervals[i, 1]
+  conf_high <- conf_intervals[i, 2]
+  
+  cat(sprintf("Name: %s, Estimate = %.3f, p = %.3f, 95CI = %.3f:%.3f\n", covariate_name, estimate, p_value, conf_low, conf_high))
+}
+cat(sprintf("X(%.0f)=%.3f, p = %.3f", mdl_vCing_anova$Df[2], mdl_vCing_anova$Chisq[2], mdl_vCing_anova$`Pr(>Chisq)`[2]))
+```
+## Seizure Outcome 
+```{r}
+t.test(Postop_vol_FNX ~ ILAE_bin, data=data_LTLE)
+t.test(Postop_vol_vCing ~ ILAE_bin, data=data_LTLE)
+```
+
+
+
+
+
+
