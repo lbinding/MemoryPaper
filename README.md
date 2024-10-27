@@ -4,7 +4,7 @@ Thank you for visiting this GitHub page! This repository contains the code neces
 
 ## AT-AT
 
-A description of this software can be found in the paper:
+A description of this software can be found below:
 
 ### 7T White Matter Anatomical Priors
 
